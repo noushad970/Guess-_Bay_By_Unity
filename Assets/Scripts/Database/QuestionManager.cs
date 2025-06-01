@@ -1,16 +1,278 @@
-using UnityEngine;
+﻿using UnityEngine;
+using Firebase.Database;
+using Firebase.Extensions;
+using System;
+using System.Collections.Generic;
+using Firebase.Auth;
+using Firebase;
+using UnityEngine.UI;
 
 public class QuestionManager : MonoBehaviour
 {
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
+    private DatabaseReference dbRef;
+    private string userId ; // Replace with actual user ID
+    private FirebaseAuth auth;
     void Start()
     {
-        
+        dbRef = FirebaseDatabase.DefaultInstance.RootReference;
+        FirebaseApp.CheckAndFixDependenciesAsync().ContinueWithOnMainThread(task => {
+            if (task.Result == DependencyStatus.Available)
+            {
+                auth = FirebaseAuth.DefaultInstance;
+                dbRef = FirebaseDatabase.DefaultInstance.RootReference;
+                Debug.Log("Firebase initialized!");
+
+                if (auth.CurrentUser != null)
+                {
+                    userId = auth.CurrentUser.UserId;
+                    Debug.Log("Auto-login: User already signed in: " + userId);
+                    
+                }
+                
+            }
+            else
+            {
+                Debug.LogError("Could not resolve Firebase dependencies: " + task.Result);
+                
+            }
+        });
+    }
+    
+    // 🔵 1. Post a question
+    public void PostQuestion(string questionText, List<string> answers, int prizeTokens,string correctAnswer)
+    {
+        int postingCost = 3; // Fixed $3 cost
+        int totalCost = postingCost + prizeTokens;
+
+        dbRef.Child("users").Child(userId).Child("tokens").GetValueAsync().ContinueWithOnMainThread(task =>
+        {
+            if (task.IsFaulted || task.IsCanceled) return;
+            int userTokens = int.Parse(task.Result.Value.ToString());
+
+            if (userTokens < totalCost)
+            {
+                Debug.Log("Not enough tokens.");
+                return;
+            }
+
+            string questionId = dbRef.Child("questions").Push().Key;
+            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long expiry = now + 30L * 24 * 60 * 60 * 1000; // 30 days
+
+            Dictionary<string, object> data = new Dictionary<string, object>
+            {
+                { "userId", userId },
+                { "postedBy", userId },
+                { "questionText", questionText },
+                { "answers", answers },
+                { "correctAnswer", correctAnswer },
+                { "prizeTokens", prizeTokens },
+                { "pricePerPlay", prizeTokens },
+                { "createdAt", now },
+                { "expiresAt", expiry },
+                { "viewedBy", new Dictionary<string, bool>() }
+            };
+
+            dbRef.Child("questions").Child(questionId).SetValueAsync(data).ContinueWithOnMainThread(postTask =>
+            {
+                if (!postTask.IsFaulted)
+                {
+                    dbRef.Child("users").Child(userId).Child("tokens").SetValueAsync(userTokens - totalCost);
+                    Debug.Log("Question posted.");
+                }
+            });
+        });
     }
 
-    // Update is called once per frame
-    void Update()
+    // 🔵 2. Load a "For You" question
+    /*public void LoadForYouQuestion()
     {
-        
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        dbRef.Child("questions").GetValueAsync().ContinueWithOnMainThread(task =>
+        {
+            if (task.IsFaulted || task.IsCanceled) return;
+
+            foreach (var snap in task.Result.Children)
+            {
+                var q = (IDictionary<string, object>)snap.Value;
+                if (Convert.ToInt64(q["expiresAt"]) < now) continue;
+
+                var viewedBy = q.ContainsKey("viewedBy") ? (IDictionary<string, object>)q["viewedBy"] : new Dictionary<string, object>();
+                if (viewedBy.ContainsKey(userId)) continue;
+
+                string questionId = snap.Key;
+                string questionText = q["questionText"].ToString();
+                Debug.Log($"For You: {questionText}");
+
+                // Show in UI here...
+
+                break;
+            }
+        });
     }
+    */
+    public void LoadForYou()
+    {
+        DatabaseReference db = FirebaseDatabase.DefaultInstance.RootReference;
+        string userId = auth.CurrentUser.UserId;
+
+        db.Child("Questions").GetValueAsync().ContinueWithOnMainThread(task =>
+        {
+            if (task.IsFaulted)
+            {
+                Debug.LogError("Error loading questions: " + task.Exception);
+            }
+            else if (task.IsCompleted)
+            {
+                DataSnapshot snapshot = task.Result;
+
+                db.Child("Users").Child(userId).Child("viewedQuestions").GetValueAsync().ContinueWithOnMainThread(viewTask =>
+                {
+                    if (viewTask.IsCompleted)
+                    {
+                        List<string> viewed = new List<string>();
+                        if (viewTask.Result.Exists)
+                        {
+                            foreach (var q in viewTask.Result.Children)
+                                viewed.Add(q.Key); // use q.Key (question ID) not q.Value
+                        }
+
+                        bool foundQuestion = false;
+
+                        foreach (var q in snapshot.Children)
+                        {
+                            string questionId = q.Key;
+                            string postedBy = q.Child("postedBy").Value?.ToString();
+
+                            if (postedBy == userId)
+                            {
+                                // Skip if the user posted this question
+                                continue;
+                            }
+
+                            if (!viewed.Contains(questionId))
+                            {
+                                string questionText = q.Child("text").Value.ToString();
+
+                                Debug.Log("Loaded For You Question: " + questionText);
+
+                                // Add to viewedQuestions
+                                db.Child("Users").Child(userId).Child("viewedQuestions").Child(questionId).SetValueAsync(true);
+
+                                // TODO: Show this question on the UI (set text + answer options)
+                                foundQuestion = true;
+                                break;
+                            }
+                        }
+
+                        if (!foundQuestion)
+                        {
+                            Debug.Log("No new questions available.");
+                            // Optionally: Show 'No more questions' message on UI
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    // 🔵 3. Play question
+    public void PlayQuestion(string questionId)
+    {
+        dbRef.Child("questions").Child(questionId).GetValueAsync().ContinueWithOnMainThread(task =>
+        {
+            if (task.IsFaulted || task.IsCanceled) return;
+
+            var q = (IDictionary<string, object>)task.Result.Value;
+            int price = Convert.ToInt32(q["pricePerPlay"]);
+
+            dbRef.Child("users").Child(userId).Child("tokens").GetValueAsync().ContinueWithOnMainThread(userTask =>
+            {
+                int tokens = int.Parse(userTask.Result.Value.ToString());
+                if (tokens < price)
+                {
+                    Debug.Log("Not enough tokens.");
+                    return;
+                }
+
+                dbRef.Child("users").Child(userId).Child("tokens").SetValueAsync(tokens - price);
+                Debug.Log("Started game. Timer: 1 min.");
+            });
+        });
+    }
+
+    // 🔵 4. Extend Time
+    public void ExtendTime()
+    {
+        dbRef.Child("users").Child(userId).Child("tokens").GetValueAsync().ContinueWithOnMainThread(task =>
+        {
+            int tokens = int.Parse(task.Result.Value.ToString());
+            if (tokens < 1)
+            {
+                Debug.Log("Not enough tokens.");
+                return;
+            }
+
+            dbRef.Child("users").Child(userId).Child("tokens").SetValueAsync(tokens - 1);
+            Debug.Log("Time extended (+30s).");
+        });
+    }
+
+    // 🔵 5. Reduce Choices
+    public void ReduceChoices(int cost)
+    {
+        dbRef.Child("users").Child(userId).Child("tokens").GetValueAsync().ContinueWithOnMainThread(task =>
+        {
+            int tokens = int.Parse(task.Result.Value.ToString());
+            if (tokens < cost)
+            {
+                Debug.Log("Not enough tokens.");
+                return;
+            }
+
+            dbRef.Child("users").Child(userId).Child("tokens").SetValueAsync(tokens - cost);
+            Debug.Log("Choices reduced, time +1min.");
+        });
+    }
+
+    // 🔵 6. Submit Answer
+    public void SubmitAnswer(string questionId, string userAnswer, string correctAnswer)
+    {
+        dbRef.Child("users").Child(userId).Child("tokens").GetValueAsync().ContinueWithOnMainThread(userTask =>
+        {
+            int tokens = int.Parse(userTask.Result.Value.ToString());
+
+            dbRef.Child("questions").Child(questionId).GetValueAsync().ContinueWithOnMainThread(qTask =>
+            {
+                var q = (IDictionary<string, object>)qTask.Result.Value;
+                int playCost = Convert.ToInt32(q["pricePerPlay"]);
+                int prize = Convert.ToInt32(q["prizeTokens"]);
+                string ownerId = q["userId"].ToString();
+
+                if (userAnswer == correctAnswer)
+                {
+                    dbRef.Child("users").Child(userId).Child("tokens").SetValueAsync(tokens + prize);
+                    dbRef.Child("questions").Child(questionId).Child("winnerId").SetValueAsync(userId);
+                    Debug.Log("Correct! Prize awarded.");
+                }
+                else
+                {
+                    int refund = playCost / 2;
+                    int toOwner = playCost - refund;
+
+                    dbRef.Child("users").Child(userId).Child("tokens").SetValueAsync(tokens + refund);
+                    dbRef.Child("users").Child(ownerId).Child("tokens").GetValueAsync().ContinueWithOnMainThread(ownerTask =>
+                    {
+                        int ownerTokens = int.Parse(ownerTask.Result.Value.ToString());
+                        dbRef.Child("users").Child(ownerId).Child("tokens").SetValueAsync(ownerTokens + toOwner);
+                        Debug.Log("Wrong. Half refunded. Half to owner.");
+                    });
+                }
+
+                dbRef.Child("questions").Child(questionId).Child("viewedBy").Child(userId).SetValueAsync(true);
+            });
+        });
+    }
+    
 }
