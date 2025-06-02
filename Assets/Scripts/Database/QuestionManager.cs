@@ -22,6 +22,7 @@ public class QuestionManager : MonoBehaviour
     long prizePerPlay;
     long prizeTokens;
     List<string> allAnswers;
+    [SerializeField] private ForYouPage forYouPage;
     void Start()
     {
         dbRef = FirebaseDatabase.DefaultInstance.RootReference;
@@ -193,7 +194,10 @@ public class QuestionManager : MonoBehaviour
                                 Debug.Log("Loaded For You Question: " + questionText);
 
                                 db.Child("Users").Child(userId).Child("viewedQuestions").Child(questionId).SetValueAsync(true);
-
+                                
+                                //initializing for you page texts frontend.
+                                forYouPage.initializeFeeAndPrize();
+                                forYouPage.initializeQuestions();
                                 foundQuestion = true;
                                 break;
                             }
@@ -201,6 +205,7 @@ public class QuestionManager : MonoBehaviour
 
                         if (!foundQuestion)
                         {
+                            forYouPage.initializeNoAnswer();
                             Debug.Log("No new questions available.");
                         }
                     }
@@ -210,7 +215,7 @@ public class QuestionManager : MonoBehaviour
     }
    
 // 🔵 3. Play question
-public void PlayQuestion(string questionId)
+    public void PlayQuestion(string questionId)
     {
         dbRef.Child("questions").Child(questionId).GetValueAsync().ContinueWithOnMainThread(task =>
         {
@@ -306,5 +311,12 @@ public void PlayQuestion(string questionId)
             });
         });
     }
-    
+    public int getQuestionPrize()
+    {
+        return int.Parse(prizePerPlay.ToString());
+    }
+    public string getQuestionText()
+    {
+        return questionText;
+    }
 }
