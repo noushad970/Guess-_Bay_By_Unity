@@ -12,7 +12,16 @@ public class QuestionManager : MonoBehaviour
 {
     private DatabaseReference dbRef;
     private string userId ; // Replace with actual user ID
+    
     private FirebaseAuth auth;
+    string questionText;
+    string qId;
+    string qText;
+    string correctAnswer;
+    string QpostedBy;
+    long prizePerPlay;
+    long prizeTokens;
+    List<string> allAnswers;
     void Start()
     {
         dbRef = FirebaseDatabase.DefaultInstance.RootReference;
@@ -145,16 +154,31 @@ public class QuestionManager : MonoBehaviour
 
                             if (!viewed.Contains(questionId))
                             {
-                                string questionText = q.Child("questionText").Value?.ToString();
+                                 questionText = q.Child("questionText").Value?.ToString();
                                 //extra see all value:
-                                string qId = q.Key;
-                                string qText = q.Child("questionText").Value?.ToString();
-                                string correctAnswer = q.Child("correctAnswer").Value?.ToString();
-                                string QpostedBy = q.Child("postedBy").Value?.ToString();
-                                //long createdAt = (long)q.Child("createdAt").Value;
-                                //long expiresAt = (long)q.Child("expiresAt").Value;
-                                long prizePerPlay = (long)q.Child("pricePerPlay").Value;
-                                long prizeTokens = (long)q.Child("prizeTokens").Value;
+                                 qId = q.Key;
+                                 qText = q.Child("questionText").Value?.ToString();
+                                 correctAnswer = q.Child("correctAnswer").Value?.ToString();
+                                 QpostedBy = q.Child("postedBy").Value?.ToString();
+                                // createdAt = (long)q.Child("createdAt").Value;
+                                // expiresAt = (long)q.Child("expiresAt").Value;
+                                 prizePerPlay = (long)q.Child("pricePerPlay").Value;
+                                 prizeTokens = (long)q.Child("prizeTokens").Value;
+
+                                allAnswers = new List<string>();
+
+                                if (q.Child("answers").Exists && q.Child("answers").ChildrenCount > 0)
+                                {
+                                    foreach (var answer in q.Child("answers").Children)
+                                    {
+                                        string ans = answer.Value?.ToString();
+                                        if (!string.IsNullOrEmpty(ans))
+                                        {
+                                            allAnswers.Add(ans);
+                                        }
+                                    }
+                                }
+                                Debug.Log("Loaded Answers (non-null): " + string.Join(", ", allAnswers));
 
                                 Debug.Log($"Question ID: {qId}");
                                 Debug.Log($"Question Text: {qText}");
