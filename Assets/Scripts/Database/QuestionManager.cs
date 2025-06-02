@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using Firebase.Auth;
 using Firebase;
 using UnityEngine.UI;
+using System.Collections;
 
 public class QuestionManager : MonoBehaviour
 {
@@ -28,7 +29,9 @@ public class QuestionManager : MonoBehaviour
                     Debug.Log("Auto-login: User already signed in: " + userId);
                     
                 }
-                
+                StartCoroutine(waitforQuestion());
+
+
             }
             else
             {
@@ -36,6 +39,11 @@ public class QuestionManager : MonoBehaviour
                 
             }
         });
+    }
+    IEnumerator waitforQuestion()
+    {
+        yield return new WaitForSeconds(3);
+        LoadForYou();
     }
     
     // 🔵 1. Post a question
@@ -84,40 +92,21 @@ public class QuestionManager : MonoBehaviour
         });
     }
 
-    // 🔵 2. Load a "For You" question
-    /*public void LoadForYouQuestion()
-    {
-        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-        dbRef.Child("questions").GetValueAsync().ContinueWithOnMainThread(task =>
-        {
-            if (task.IsFaulted || task.IsCanceled) return;
-
-            foreach (var snap in task.Result.Children)
-            {
-                var q = (IDictionary<string, object>)snap.Value;
-                if (Convert.ToInt64(q["expiresAt"]) < now) continue;
-
-                var viewedBy = q.ContainsKey("viewedBy") ? (IDictionary<string, object>)q["viewedBy"] : new Dictionary<string, object>();
-                if (viewedBy.ContainsKey(userId)) continue;
-
-                string questionId = snap.Key;
-                string questionText = q["questionText"].ToString();
-                Debug.Log($"For You: {questionText}");
-
-                // Show in UI here...
-
-                break;
-            }
-        });
-    }
-    */
+   
     public void LoadForYou()
     {
         DatabaseReference db = FirebaseDatabase.DefaultInstance.RootReference;
-        string userId = auth.CurrentUser.UserId;
+        string userId = auth.CurrentUser?.UserId;
 
-        db.Child("Questions").GetValueAsync().ContinueWithOnMainThread(task =>
+        if (string.IsNullOrEmpty(userId))
+        {
+            Debug.LogError("User is not authenticated.");
+            return;
+        }
+
+        Debug.Log("Starting LoadForYou for user: " + userId);
+
+        db.Child("questions").GetValueAsync().ContinueWithOnMainThread(task =>
         {
             if (task.IsFaulted)
             {
@@ -129,13 +118,17 @@ public class QuestionManager : MonoBehaviour
 
                 db.Child("Users").Child(userId).Child("viewedQuestions").GetValueAsync().ContinueWithOnMainThread(viewTask =>
                 {
-                    if (viewTask.IsCompleted)
+                    if (viewTask.IsFaulted)
+                    {
+                        Debug.LogError("Error loading viewed questions: " + viewTask.Exception);
+                    }
+                    else if (viewTask.IsCompleted)
                     {
                         List<string> viewed = new List<string>();
                         if (viewTask.Result.Exists)
                         {
                             foreach (var q in viewTask.Result.Children)
-                                viewed.Add(q.Key); // use q.Key (question ID) not q.Value
+                                viewed.Add(q.Key);
                         }
 
                         bool foundQuestion = false;
@@ -147,20 +140,36 @@ public class QuestionManager : MonoBehaviour
 
                             if (postedBy == userId)
                             {
-                                // Skip if the user posted this question
                                 continue;
                             }
 
                             if (!viewed.Contains(questionId))
                             {
-                                string questionText = q.Child("text").Value.ToString();
+                                string questionText = q.Child("questionText").Value?.ToString();
+                                //extra see all value:
+                                string qId = q.Key;
+                                string qText = q.Child("questionText").Value?.ToString();
+                                string correctAnswer = q.Child("correctAnswer").Value?.ToString();
+                                string QpostedBy = q.Child("postedBy").Value?.ToString();
+                                //long createdAt = (long)q.Child("createdAt").Value;
+                                //long expiresAt = (long)q.Child("expiresAt").Value;
+                                long prizePerPlay = (long)q.Child("pricePerPlay").Value;
+                                long prizeTokens = (long)q.Child("prizeTokens").Value;
 
+                                Debug.Log($"Question ID: {qId}");
+                                Debug.Log($"Question Text: {qText}");
+                                Debug.Log($"Correct Answer: {correctAnswer}");
+                                Debug.Log($"Posted By: {QpostedBy}");
+                                //Debug.Log($"Created At: {createdAt}");
+                                //Debug.Log($"Expires At: {expiresAt}");
+                                Debug.Log($"Prize Per Play: {prizePerPlay}");
+                                Debug.Log($"Prize Tokens: {prizeTokens}");
+                                Debug.Log("------------------------");
+                                //extra end.
                                 Debug.Log("Loaded For You Question: " + questionText);
 
-                                // Add to viewedQuestions
                                 db.Child("Users").Child(userId).Child("viewedQuestions").Child(questionId).SetValueAsync(true);
 
-                                // TODO: Show this question on the UI (set text + answer options)
                                 foundQuestion = true;
                                 break;
                             }
@@ -169,16 +178,15 @@ public class QuestionManager : MonoBehaviour
                         if (!foundQuestion)
                         {
                             Debug.Log("No new questions available.");
-                            // Optionally: Show 'No more questions' message on UI
                         }
                     }
                 });
             }
         });
     }
-
-    // 🔵 3. Play question
-    public void PlayQuestion(string questionId)
+   
+// 🔵 3. Play question
+public void PlayQuestion(string questionId)
     {
         dbRef.Child("questions").Child(questionId).GetValueAsync().ContinueWithOnMainThread(task =>
         {
