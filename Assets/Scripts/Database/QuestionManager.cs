@@ -319,4 +319,12 @@ public class QuestionManager : MonoBehaviour
     {
         return questionText;
     }
+    public int getAnswersCount()
+    {
+        if (allAnswers != null)
+        {
+            return allAnswers.Count;
+        }
+        return 0;
+    }
 }
