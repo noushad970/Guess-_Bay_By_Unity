@@ -9,7 +9,7 @@ public class PanelManager : MonoBehaviour
         
     }
 
-    void disableAll()
+    public void disableAll()
     {
         homePanel.SetActive(false);
         forYouPanel.SetActive(false);  

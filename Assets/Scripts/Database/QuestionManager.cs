@@ -327,4 +327,14 @@ public class QuestionManager : MonoBehaviour
         }
         return 0;
     }
+    public string getCorrectAnswer()
+    {
+        if(correctAnswer!=null)
+        return correctAnswer;
+        return "";
+    }
+    public List<string> getAllAnswers()
+    {
+        return allAnswers;
+    }
 }

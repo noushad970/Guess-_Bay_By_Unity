@@ -12,7 +12,8 @@ public class ForYouPage : MonoBehaviour
 {
     [SerializeField] private TMP_Text questionText;
     [SerializeField] private Button playButton,nextButton;
-
+    [SerializeField] private PlayGamePage gamePage;
+    [SerializeField] private GameObject gamePanel;
 
     [Header("Prize and Entry Fee")]
     [SerializeField] private TMP_Text entryFeeText, prizeMoneyText, WinPrizeText, NoAnwerPrizeText;
@@ -28,6 +29,8 @@ public class ForYouPage : MonoBehaviour
     }
     public void onClickPlayButton()
     {
+        gamePanel.SetActive(true);
+        gamePage.startGame();
         //goto play section
     }
     public void initializeQuestions()
